@@ -303,19 +303,29 @@ import streamlit as st
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 
-# Updated LangChain imports
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+# Robust LangChain imports with fallbacks
+try:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+except ImportError:
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+
 from langchain_community.vectorstores import FAISS
-from langchain_community.chat_message_histories import StreamlitChatMessageHistory
+
 try:
     from langchain.memory import ConversationBufferMemory
 except ImportError:
-    try:
-        from langchain_community.memory import ConversationBufferMemory
-    except ImportError:
-        from langchain.memory.buffer import ConversationBufferMemory
-from langchain.chains import ConversationalRetrievalChain
-from langchain_core.documents import Document
+    from langchain_community.memory import ConversationBufferMemory
+
+try:
+    from langchain.chains import ConversationalRetrievalChain
+except ImportError:
+    from langchain_community.chains import ConversationalRetrievalChain
+
+try:
+    from langchain_core.documents import Document
+except ImportError:
+    from langchain.schema import Document
+
 from langchain_google_genai import (
     ChatGoogleGenerativeAI,
     GoogleGenerativeAIEmbeddings,
