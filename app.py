@@ -313,7 +313,8 @@ except ImportError:
     try:
         from langchain_community.memory import ConversationBufferMemory
     except ImportError:
-        from langchain.memory.buffer import ConversationBufferMemoryfrom langchain.chains import ConversationalRetrievalChain
+        from langchain.memory.buffer import ConversationBufferMemory
+from langchain.chains import ConversationalRetrievalChain
 from langchain_core.documents import Document
 from langchain_google_genai import (
     ChatGoogleGenerativeAI,
