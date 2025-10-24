@@ -297,37 +297,25 @@
 import os
 import io
 import asyncio
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 
 import streamlit as st
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 
+# Updated imports - using only stable community packages
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
+from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.documents import Document
 from langchain_google_genai import (
     ChatGoogleGenerativeAI,
     GoogleGenerativeAIEmbeddings,
 )
-
-# Robust memory import with fallbacks
-try:
-    # Try the standard import first
-    from langchain.memory import ConversationBufferMemory
-except ImportError:
-    try:
-        # Try the buffer submodule
-        from langchain.memory.buffer import ConversationBufferMemory
-    except ImportError:
-        try:
-            # Try community package
-            from langchain_community.memory import ConversationBufferMemory
-        except ImportError:
-            # Last resort - try core package
-            from langchain_core.memory import ConversationBufferMemory
-
-from langchain.chains import ConversationalRetrievalChain
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.chat_history import BaseChatMessageHistory
 
 from htmlTemplates import css, bot_template, user_template, app_header
 
@@ -403,24 +391,55 @@ def build_vectorstore(chunked_docs: List[Document]):
     return FAISS.from_documents(documents=chunked_docs, embedding=embeddings)
 
 
-# LLM + chain
+# Custom memory store
+class SimpleMemoryStore:
+    def __init__(self):
+        self.store: Dict[str, BaseChatMessageHistory] = {}
+
+    def get_history(self, session_id: str) -> BaseChatMessageHistory:
+        if session_id not in self.store:
+            self.store[session_id] = ChatMessageHistory()
+        return self.store[session_id]
+
+
+# LLM + chain using the new approach
 def build_chain(vectorstore, model_name: str, temperature: float, top_k: int):
     llm = ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
-    memory = ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=True,
-        output_key="answer",
-        input_key="question",
-    )
     retriever = vectorstore.as_retriever(search_kwargs={"k": top_k})
-    chain = ConversationalRetrievalChain.from_llm(
-        llm=llm,
-        retriever=retriever,
-        memory=memory,
-        return_source_documents=True,
-        verbose=False,
+    
+    # Contextualize question prompt
+    contextualize_q_prompt = ChatPromptTemplate.from_messages([
+        ("system", """Given a chat history and the latest user question which might reference context in the chat history, 
+        formulate a standalone question which can be understood without the chat history. 
+        Do NOT answer the question, just reformulate it if needed and otherwise return it as is."""),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}"),
+    ])
+    
+    # Create history-aware retriever
+    history_aware_retriever = create_history_aware_retriever(
+        llm, retriever, contextualize_q_prompt
     )
-    return chain
+    
+    # Answer question prompt
+    qa_prompt = ChatPromptTemplate.from_messages([
+        ("system", """You are an assistant for question-answering tasks. 
+        Use the following pieces of retrieved context to answer the question. 
+        If you don't know the answer, just say that you don't know. 
+        Use three sentences maximum and keep the answer concise.
+        
+        Context: {context}"""),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}"),
+    ])
+    
+    # Create question answering chain
+    question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
+    
+    # Create retrieval chain
+    rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+    
+    return rag_chain
 
 
 def render_sources(source_documents):
@@ -466,6 +485,7 @@ def main():
     st.write(css, unsafe_allow_html=True)
     st.markdown(app_header, unsafe_allow_html=True)
 
+    # Initialize session state
     if "conversation" not in st.session_state:
         st.session_state.conversation = None
     if "chat_history" not in st.session_state:
@@ -474,6 +494,8 @@ def main():
         st.session_state.vector_ready = False
     if "last_sources" not in st.session_state:
         st.session_state.last_sources = []
+    if "memory_store" not in st.session_state:
+        st.session_state.memory_store = SimpleMemoryStore()
 
     with st.sidebar:
         st.subheader("📄 Your documents")
@@ -497,7 +519,7 @@ def main():
         st.subheader("🤖 Model Settings")
         model = st.selectbox(
             "Google Gemini model",
-            ["gemini-2.5-flash", "gemini-2.5-flash-8b", "gemini-2.5-pro"],
+            ["gemini-2.5-flash", "gemini-2.5-flash-8b", "gemini-2.5-pro", "gemini-pro"],
             index=0,
         )
         temperature = st.slider("Creativity (temperature)", 0.0, 1.0, 0.2, 0.05)
@@ -511,8 +533,8 @@ def main():
 
         if clear_chat:
             st.session_state.chat_history = []
-            if st.session_state.conversation:
-                st.session_state.conversation.memory.clear()
+            st.session_state.memory_store = SimpleMemoryStore()
+            st.session_state.last_sources = []
             st.info("Chat cleared.", icon="ℹ️")
 
         if process:
@@ -552,9 +574,22 @@ def main():
 
     if user_q and st.session_state.conversation:
         with st.spinner("Thinking..."):
-            response = st.session_state.conversation.invoke({"question": user_q})
-        st.session_state.chat_history = response.get("chat_history", [])
-        st.session_state.last_sources = response.get("source_documents", [])
+            # Get chat history for current session
+            chat_history = st.session_state.memory_store.get_history("default")
+            
+            # Prepare input for the chain
+            result = st.session_state.conversation.invoke({
+                "input": user_q,
+                "chat_history": chat_history.messages
+            })
+            
+            # Add the new messages to history
+            chat_history.add_user_message(user_q)
+            chat_history.add_ai_message(result["answer"])
+            
+            # Update session state
+            st.session_state.chat_history = chat_history.messages
+            st.session_state.last_sources = result.get("context", [])
 
     elif user_q and not st.session_state.conversation:
         st.info("Upload & process PDFs first (left sidebar).", icon="ℹ️")
@@ -562,8 +597,8 @@ def main():
     chat_block = st.container()
     with chat_block:
         if st.session_state.chat_history:
-            for i, message in enumerate(st.session_state.chat_history):
-                role = "user" if message.type in ("human", "user") else "bot"
+            for message in st.session_state.chat_history:
+                role = "user" if message.type == "human" else "bot"
                 render_message(role, message.content)
 
             if st.session_state.last_sources:
@@ -590,7 +625,7 @@ def main():
                 "⬇️ Export chat (.md)",
                 data="\n\n".join(
                     [
-                        (f"**You:** {m.content}" if m.type in ("human", "user") else f"**Assistant:** {m.content}")
+                        (f"**You:** {m.content}" if m.type == "human" else f"**Assistant:** {m.content}")
                         for m in st.session_state.chat_history
                     ]
                 ).encode("utf-8"),
