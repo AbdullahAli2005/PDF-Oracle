@@ -306,6 +306,7 @@ from PyPDF2 import PdfReader
 # Updated LangChain imports
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
+from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 from langchain_core.documents import Document
