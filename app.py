@@ -1,4 +1,3 @@
-
 import os
 import io
 import asyncio
@@ -18,7 +17,8 @@ from langchain_google_genai import (
     GoogleGenerativeAIEmbeddings,
 )
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain_core.retrievers import create_retrieval_chain
+# from langchain.chains.combine_documents.stuff import create_stuff_documents_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -26,7 +26,6 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from htmlTemplates import css, bot_template, user_template, app_header
 
 
-# --- Fix for "no current event loop" errors when using gRPC async clients ---
 try:
     asyncio.get_running_loop()
 except RuntimeError:
@@ -96,6 +95,17 @@ def build_vectorstore(chunked_docs: List[Document]):
     # embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     return FAISS.from_documents(documents=chunked_docs, embedding=embeddings)
+
+
+def create_history_aware_retriever(llm, retriever, contextualize_q_prompt):
+    """
+    Minimal placeholder for a history-aware retriever.
+
+    For now this shim returns the provided retriever unchanged so existing code can
+    run without the missing symbol; replace this with a proper implementation that
+    uses the llm and contextualize_q_prompt to rewrite queries based on chat history.
+    """
+    return retriever
 
 
 # Custom memory store
