@@ -31,7 +31,7 @@ Clone the repository and set up your virtual environment:
 
 ```bash
 # Clone the repo
-git clone https://github.com/your-username/pdf_oracle_masterpiece.git
+git clone https://github.com/AbdullahAli2005/pdf_oracle.git
 cd pdf_oracle_masterpiece
 
 # Create virtual environment
@@ -81,11 +81,7 @@ Then open the link shown in your terminal (usually `http://localhost:8501`).
 
 ---
 
-## 🖼️ Screenshots
 
-*(Add your app screenshots here)*
-
----
 
 ## 📌 Roadmap
 
