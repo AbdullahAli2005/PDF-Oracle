@@ -31,7 +31,7 @@ Clone the repository and set up your virtual environment:
 
 ```bash
 # Clone the repo
-git clone https://github.com/AbdullahAli2005/pdf_oracle.git
+git clone https://github.com/AbdullahAli2005/PDF-Oracle.git
 cd pdf_oracle_masterpiece
 
 # Create virtual environment
