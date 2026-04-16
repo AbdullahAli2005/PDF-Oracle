@@ -244,7 +244,7 @@ def main():
         st.subheader("🤖 Model Settings")
         model = st.selectbox(
             "Google Gemini model",
-            ["gemini-2.5-pro", "gemini-2.5-flash"],
+            ["gemini-2.5-flash", "gemini-2.5-pro"],
             index=0,
         )
         temperature = st.slider("Creativity (temperature)", 0.0, 1.0, 0.2, 0.05)
