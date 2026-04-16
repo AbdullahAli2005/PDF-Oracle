@@ -17,9 +17,10 @@ from langchain_google_genai import (
     GoogleGenerativeAIEmbeddings,
 )
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_classic.chains import create_history_aware_retriever
 # from langchain_core.retrievers import create_retrieval_chain
 # from langchain.chains.combine_documents.stuff import create_stuff_documents_chain
-# from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_classic.chains import create_retrieval_chain
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.chat_history import BaseChatMessageHistory
@@ -124,10 +125,15 @@ class SimpleMemoryStore:
 
 # LLM + chain using the new approach
 def build_chain(vectorstore, model_name: str, temperature: float, top_k: int):
-    llm = ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
-    retriever = vectorstore.as_retriever(search_kwargs={"k": top_k})
+    llm = ChatGoogleGenerativeAI(
+        model=model_name, 
+        temperature=temperature,
+        convert_system_message_to_human=True   # ← Helps with Gemini compatibility
+    )
     
-    # Contextualize question prompt
+    retriever = vectorstore.as_retriever(search_kwargs={"k": top_k})
+
+    # 1. Contextualize question (rewrite query using history)
     contextualize_q_prompt = ChatPromptTemplate.from_messages([
         ("system", """Given a chat history and the latest user question which might reference context in the chat history, 
         formulate a standalone question which can be understood without the chat history. 
@@ -135,13 +141,12 @@ def build_chain(vectorstore, model_name: str, temperature: float, top_k: int):
         MessagesPlaceholder("chat_history"),
         ("human", "{input}"),
     ])
-    
-    # Create history-aware retriever
+
     history_aware_retriever = create_history_aware_retriever(
         llm, retriever, contextualize_q_prompt
     )
-    
-    # Answer question prompt
+
+    # 2. QA Prompt
     qa_prompt = ChatPromptTemplate.from_messages([
         ("system", """You are an assistant for question-answering tasks. 
         Use the following pieces of retrieved context to answer the question. 
@@ -152,11 +157,10 @@ def build_chain(vectorstore, model_name: str, temperature: float, top_k: int):
         MessagesPlaceholder("chat_history"),
         ("human", "{input}"),
     ])
-    
-    # Create question answering chain
+
     question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
-    
-    # Create retrieval chain
+
+    # 3. Final RAG chain
     rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
     
     return rag_chain
